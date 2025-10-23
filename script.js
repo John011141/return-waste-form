@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // **IMPORTANT: Replace with your Google Apps Script Web App URL**
     // URL นี้ยังคงใช้สำหรับส่งข้อมูล (POST request)
-    const scriptURL = 'https://script.google.com/macros/s/AKfycbxbiXbl0b6dEb9SgbWpwGXJ5Ja63FKFPmHOnjHO91cOOhXXg86RgYiqQT5o0OneNNLhaw/exec'; // <--- URL เดิมของคุณ
+    const scriptURL = 'https://script.google.com/macros/s/AKfycbztggPlklvzBqvVSZsRtLjERcCovhkO-ATPg8S1JufOW1N_Gn20Rw19KikYBFjM5tf9ZQ/exec'; // <--- URL เดิมของคุณ
 
     // --- Form Submission Logic ---
     returnForm.addEventListener('submit', function(e) {

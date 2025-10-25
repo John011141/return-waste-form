@@ -1083,561 +1083,593 @@ SNABCDE
     </div>
    </div>
   </div>
-  <script>
-        // Default configuration
-        const defaultConfig = {
-            company_name: "TVS, INNO, TrueID",
-            form_title: "คืนของเสีย TVS,INNO,TrueID",
-            success_message: "ข้อมูลถูกส่งสำเร็จแล้ว!",
-            gas_url: "https://script.google.com/macros/s/AKfycbwB0hFFexK-uIo-R9cbXz2iYGM8uAJ4IT4eM0Auv4hhcEo586Y3JWfFN-HFPPSJCYXfSw/exec"
-        };
+ <script>
+    // Helper function for getting SN lines
+    const getSNLines = (snList) => snList.split('\n').filter(line => line.trim() !== '');
 
-        // Global variables
-        let isLoading = false;
-        let currentPage = 'form';
-        let historyData = [];
-        let filteredData = [];
-        let currentHistoryPage = 1;
-        let itemsPerPage = 10;
-        let itemToDelete = null;
-        const DELETE_PASSWORD = 'John19195';
+    // Default configuration (ใช้ GAS URL เดียวกันสำหรับส่งและดึงข้อมูล)
+    const defaultConfig = {
+        company_name: "TVS, INNO, TrueID",
+        form_title: "คืนของเสีย TVS,INNO,TrueID",
+        success_message: "ข้อมูลถูกส่งสำเร็จแล้ว!",
+        gas_url: "https://script.google.com/macros/s/AKfycbytBdfoJP1o8Kvfse53O-jYQakpMyW7w3G_HaDCjGBmcmqpRIAmq-GLbj2j_07mGBqdHA/exec" 
+    };
 
-        // Initialize SDKs
-        async function initializeApp() {
-            // Initialize Element SDK
-            if (window.elementSdk) {
-                await window.elementSdk.init({
-                    defaultConfig,
-                    render: async (config) => {
-                        document.getElementById('companyName').textContent = config.company_name || defaultConfig.company_name;
-                        document.getElementById('formTitle').textContent = config.form_title || defaultConfig.form_title;
-                    },
-                    mapToCapabilities: (config) => ({
-                        recolorables: [],
-                        borderables: [],
-                        fontEditable: undefined,
-                        fontSizeable: undefined
-                    }),
-                    mapToEditPanelValues: (config) => new Map([
-                        ["company_name", config.company_name || defaultConfig.company_name],
-                        ["form_title", config.form_title || defaultConfig.form_title],
-                        ["success_message", config.success_message || defaultConfig.success_message],
-                        ["gas_url", config.gas_url || defaultConfig.gas_url]
-                    ])
-                });
-            }
+    // Global variables
+    let isLoading = false;
+    let currentPage = 'form';
+    let historyData = [];
+    let filteredData = [];
+    let currentHistoryPage = 1;
+    let itemsPerPage = 10;
+    let itemToDelete = null;
+    const DELETE_PASSWORD = 'John19195';
+
+    // ==========================================================
+    // 💡 NEW DATE FORMATTING FUNCTIONS
+    // ==========================================================
+
+    /**
+     * แปลง ISO date string เป็นรูปแบบ DD/MM/YYYY
+     * ใช้สำหรับฟิลด์ วันที่คืน (Return Date)
+     */
+    function formatISODateToDDMMYYYY(isoString) {
+        if (!isoString) return '';
+        try {
+            // New Date() object handles the ISO string, ensuring timezone correctness
+            const dateObj = new Date(isoString);
+            
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const year = dateObj.getFullYear();
+            
+            return `${day}/${month}/${year}`;
+        } catch (e) {
+            // Fallback: หากแปลงไม่ได้ ให้แสดงเฉพาะส่วนวันที่ YYYY-MM-DD
+            return isoString.split('T')[0] || isoString;
         }
+    }
 
-        // Set current date
-        function setCurrentDate() {
-            const today = new Date();
-            const year = today.getFullYear();
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const day = String(today.getDate()).padStart(2, '0');
-            document.getElementById('returnDate').value = `${year}-${month}-${day}`;
+    /**
+     * แปลง ISO date string เป็นรูปแบบ DD/MM/YYYY, HH:mm:ss
+     * ใช้สำหรับฟิลด์ วันที่และเวลาส่ง (Submitted At)
+     */
+    function formatISODateTime(isoString) {
+        if (!isoString) return '';
+        try {
+            const dateObj = new Date(isoString);
+            
+            const datePart = formatISODateToDDMMYYYY(isoString); 
+            
+            const hours = String(dateObj.getHours()).padStart(2, '0');
+            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+            const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+            
+            return `${datePart}, ${hours}:${minutes}:${seconds}`;
+        } catch (e) {
+            return isoString;
         }
+    }
 
-        // Update character counter
-        function updateCharCounter() {
-            const textarea = document.getElementById('snList');
-            const counter = document.getElementById('charCounter');
-            const lines = textarea.value.split('\n').filter(line => line.trim() !== '');
-            counter.textContent = `${lines.length} SN`;
+    // ==========================================================
+    // END OF NEW DATE FORMATTING FUNCTIONS
+    // ==========================================================
+
+    // Initialize SDKs (ส่วนนี้ใช้สำหรับระบบ Element)
+    async function initializeApp() {
+        if (window.elementSdk) {
+            await window.elementSdk.init({
+                defaultConfig,
+                render: async (config) => {
+                    document.getElementById('companyName').textContent = config.company_name || defaultConfig.company_name;
+                    document.getElementById('formTitle').textContent = config.form_title || defaultConfig.form_title;
+                },
+                mapToCapabilities: (config) => ({
+                    recolorables: [],
+                    borderables: [],
+                    fontEditable: undefined,
+                    fontSizeable: undefined
+                }),
+                mapToEditPanelValues: (config) => new Map([
+                    ["company_name", config.company_name || defaultConfig.company_name],
+                    ["form_title", config.form_title || defaultConfig.form_title],
+                    ["success_message", config.success_message || defaultConfig.success_message],
+                    ["gas_url", config.gas_url || defaultConfig.gas_url]
+                ])
+            });
         }
+    }
 
+    function setCurrentDate() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        document.getElementById('returnDate').value = `${year}-${month}-${day}`;
+    }
 
+    function updateCharCounter() {
+        const textarea = document.getElementById('snList');
+        const counter = document.getElementById('charCounter');
+        const lines = getSNLines(textarea.value);
+        counter.textContent = `${lines.length} SN`;
+    }
 
-        // Show toast notification
-        function showToast(message, type = 'success', title = '') {
-            const toastContainer = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            
-            const icon = type === 'success' ? '✅' : '❌';
-            const toastTitle = title || (type === 'success' ? 'สำเร็จ' : 'เกิดข้อผิดพลาด');
-            
-            toast.innerHTML = `
-                <div class="toast-icon">${icon}</div>
-                <div class="toast-content">
-                    <div class="toast-title">${toastTitle}</div>
-                    <div class="toast-message">${message}</div>
-                </div>
-            `;
-            
-            toastContainer.appendChild(toast);
-            
-            // Show toast
-            setTimeout(() => toast.classList.add('show'), 100);
-            
-            // Hide and remove toast
+    function showToast(message, type = 'success', title = '') {
+        const toastContainer = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' ? '✅' : '❌';
+        const toastTitle = title || (type === 'success' ? 'สำเร็จ' : 'เกิดข้อผิดพลาด');
+        
+        toast.innerHTML = `
+            <div class="toast-icon">${icon}</div>
+            <div class="toast-content">
+                <div class="toast-title">${toastTitle}</div>
+                <div class="toast-message">${message}</div>
+            </div>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 100);
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
             setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        toast.parentNode.removeChild(toast);
-                    }
-                }, 300);
-            }, 4000);
-        }
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }, 4000);
+    }
 
-        // Set loading state
-        function setLoadingState(loading) {
-            isLoading = loading;
-            const submitBtn = document.getElementById('submitBtn');
-            const buttonText = document.getElementById('buttonText');
-            const loadingSpinner = document.getElementById('loadingSpinner');
-            
-            if (loading) {
-                submitBtn.disabled = true;
-                buttonText.textContent = 'กำลังส่งข้อมูล...';
-                loadingSpinner.style.display = 'block';
-            } else {
-                submitBtn.disabled = false;
-                buttonText.textContent = '📤 ส่งข้อมูล';
-                loadingSpinner.style.display = 'none';
+    function setLoadingState(loading) {
+        isLoading = loading;
+        const submitBtn = document.getElementById('submitBtn');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        
+        if (loading) {
+            submitBtn.disabled = true;
+            buttonText.textContent = 'กำลังส่งข้อมูล...';
+            loadingSpinner.style.display = 'block';
+        } else {
+            submitBtn.disabled = false;
+            buttonText.textContent = '📤 ส่งข้อมูล';
+            loadingSpinner.style.display = 'none';
+        }
+    }
+
+    // Handle form submission
+    async function handleSubmit(e) {
+        e.preventDefault();
+        
+        if (isLoading) return;
+        
+        setLoadingState(true);
+        
+        const config = window.elementSdk?.config || defaultConfig;
+        const gasUrl = config.gas_url || defaultConfig.gas_url;
+        
+        const formData = new FormData();
+        formData.append('action', 'submit'); // **เพิ่ม:** บอก GAS ว่าเป็นการส่งข้อมูล
+        formData.append('returnDate', document.getElementById('returnDate').value);
+        formData.append('fullName', document.getElementById('fullName').value);
+        formData.append('snList', document.getElementById('snList').value);
+        
+        try {
+            const response = await fetch(gasUrl, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-        }
 
-        // Handle form submission
-        async function handleSubmit(e) {
-            e.preventDefault();
-            
-            if (isLoading) return;
-            
-            setLoadingState(true);
-            
-            const config = window.elementSdk?.config || defaultConfig;
-            const gasUrl = config.gas_url || defaultConfig.gas_url;
-            
-            const formData = new FormData();
-            const returnDate = document.getElementById('returnDate').value;
-            const fullName = document.getElementById('fullName').value;
-            const snList = document.getElementById('snList').value;
-            
-            formData.append('returnDate', returnDate);
-            formData.append('fullName', fullName);
-            formData.append('snList', snList);
-            
-            try {
-                const response = await fetch(gasUrl, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    body: formData
-                });
-                
-                // Since we're using no-cors mode, we can't read the response
-                // We'll assume success if no error is thrown
+            const result = await response.json();
+
+            if (result.status === 'SUCCESS') {
                 const successMessage = config.success_message || defaultConfig.success_message;
                 showToast(successMessage, "success");
                 
-                // Save to local history
-                saveToHistory({
-                    returnDate,
-                    fullName,
-                    snList
-                });
-                
-                // Reset form
                 document.getElementById('returnForm').reset();
                 setCurrentDate();
                 updateCharCounter();
                 
-            } catch (error) {
-                console.error('Error submitting form:', error);
-                showToast("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาตรวจสอบ URL และลองใหม่อีกครั้ง", "error");
-            }
-            
-            setLoadingState(false);
-        }
-
-
-
-        // Page navigation
-        function showPage(page) {
-            currentPage = page;
-            
-            // Hide all pages
-            document.getElementById('formPage').style.display = 'none';
-            document.getElementById('historyPage').style.display = 'none';
-            
-            // Remove active class from all nav buttons
-            document.querySelectorAll('.nav-button').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            // Show selected page and activate button
-            if (page === 'form') {
-                document.getElementById('formPage').style.display = 'block';
-                document.getElementById('returnFormBtn').classList.add('active');
-            } else if (page === 'history') {
-                document.getElementById('historyPage').style.display = 'block';
-                document.getElementById('historyBtn').classList.add('active');
-                loadHistoryData();
-            }
-        }
-
-        // Load history data (simulate from localStorage for demo)
-        function loadHistoryData() {
-            try {
-                const stored = localStorage.getItem('returnHistory');
-                historyData = stored ? JSON.parse(stored) : [];
-                filteredData = [...historyData];
-                updateHistoryStats();
-                renderHistoryList();
-            } catch (error) {
-                console.error('Error loading history:', error);
-                historyData = [];
-                filteredData = [];
-                updateHistoryStats();
-                renderHistoryList();
-            }
-        }
-
-        // Save to history (called after successful form submission)
-        function saveToHistory(data) {
-            try {
-                const historyItem = {
-                    id: Date.now().toString(),
-                    ...data,
-                    submittedAt: new Date().toISOString()
-                };
-                
-                historyData.unshift(historyItem); // Add to beginning
-                localStorage.setItem('returnHistory', JSON.stringify(historyData));
-            } catch (error) {
-                console.error('Error saving to history:', error);
-            }
-        }
-
-        // Update history statistics
-        function updateHistoryStats() {
-            const today = new Date().toISOString().split('T')[0];
-            const todaySubmissions = filteredData.filter(item => 
-                item.returnDate === today
-            ).length;
-
-            const totalSN = filteredData.reduce((total, item) => {
-                const snLines = item.snList.split('\n').filter(line => line.trim() !== '');
-                return total + snLines.length;
-            }, 0);
-
-            document.getElementById('historyTotalSubmissions').textContent = filteredData.length;
-            document.getElementById('historyTodaySubmissions').textContent = todaySubmissions;
-            document.getElementById('historyTotalSN').textContent = totalSN;
-        }
-
-        // Render history list with pagination
-        function renderHistoryList() {
-            const historyList = document.getElementById('historyList');
-            const paginationContainer = document.getElementById('paginationContainer');
-            
-            if (filteredData.length === 0) {
-                historyList.innerHTML = `
-                    <div class="empty-history">
-                        <div class="empty-icon">📋</div>
-                        <div class="empty-text">ไม่พบข้อมูลประวัติ</div>
-                        <div class="empty-subtext">ลองปรับเปลี่ยนตัวกรองหรือค้นหาใหม่</div>
-                    </div>
-                `;
-                paginationContainer.style.display = 'none';
-                return;
-            }
-
-            // Calculate pagination
-            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-            const startIndex = (currentHistoryPage - 1) * itemsPerPage;
-            const endIndex = startIndex + itemsPerPage;
-            const currentPageData = filteredData.slice(startIndex, endIndex);
-
-            // Render current page items
-            historyList.innerHTML = currentPageData.map(item => {
-                const snLines = item.snList.split('\n').filter(line => line.trim() !== '');
-                const submittedDate = new Date(item.submittedAt);
-                const formattedDate = submittedDate.toLocaleDateString('th-TH', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-
-                const snPreview = snLines.join('\n');
-
-                return `
-                    <div class="history-item">
-                        <button class="delete-btn" onclick="showDeleteModal('${item.id}')">
-                            🗑️ ลบ
-                        </button>
-                        <div class="history-header-info">
-                            <div class="history-name">${item.fullName}</div>
-                            <div class="history-date">${formattedDate}</div>
-                        </div>
-                        <div class="history-details">
-                            <div class="history-detail-item">
-                                <span>📅</span>
-                                <span>วันที่คืน: ${item.returnDate}</span>
-                            </div>
-                            <div class="history-detail-item">
-                                <span>📦</span>
-                                <span class="sn-count-badge">${snLines.length} SN</span>
-                            </div>
-                        </div>
-                        <div class="history-sn-preview">${snPreview}</div>
-                    </div>
-                `;
-            }).join('');
-
-            // Show/hide pagination
-            if (totalPages > 1) {
-                paginationContainer.style.display = 'flex';
-                renderPagination(totalPages);
-            } else {
-                paginationContainer.style.display = 'none';
-            }
-        }
-
-        // Render pagination controls
-        function renderPagination(totalPages) {
-            const pageNumbers = document.getElementById('pageNumbers');
-            const paginationInfo = document.getElementById('paginationInfo');
-            const prevBtn = document.getElementById('prevPageBtn');
-            const nextBtn = document.getElementById('nextPageBtn');
-
-            // Update pagination info
-            const startItem = (currentHistoryPage - 1) * itemsPerPage + 1;
-            const endItem = Math.min(currentHistoryPage * itemsPerPage, filteredData.length);
-            paginationInfo.textContent = `${startItem}-${endItem} จาก ${filteredData.length} รายการ`;
-
-            // Update prev/next buttons
-            prevBtn.disabled = currentHistoryPage === 1;
-            nextBtn.disabled = currentHistoryPage === totalPages;
-
-            // Generate page numbers
-            let pages = [];
-            const maxVisiblePages = 5;
-            
-            if (totalPages <= maxVisiblePages) {
-                pages = Array.from({length: totalPages}, (_, i) => i + 1);
-            } else {
-                const start = Math.max(1, currentHistoryPage - 2);
-                const end = Math.min(totalPages, start + maxVisiblePages - 1);
-                pages = Array.from({length: end - start + 1}, (_, i) => start + i);
-            }
-
-            pageNumbers.innerHTML = pages.map(page => `
-                <div class="page-number ${page === currentHistoryPage ? 'active' : ''}" 
-                     onclick="goToPage(${page})">
-                    ${page}
-                </div>
-            `).join('');
-        }
-
-        // Navigate to specific page
-        function goToPage(page) {
-            currentHistoryPage = page;
-            renderHistoryList();
-        }
-
-        // Navigate to previous page
-        function goToPrevPage() {
-            if (currentHistoryPage > 1) {
-                currentHistoryPage--;
-                renderHistoryList();
-            }
-        }
-
-        // Navigate to next page
-        function goToNextPage() {
-            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-            if (currentHistoryPage < totalPages) {
-                currentHistoryPage++;
-                renderHistoryList();
-            }
-        }
-
-        // Change items per page
-        function changeItemsPerPage() {
-            itemsPerPage = parseInt(document.getElementById('itemsPerPage').value);
-            currentHistoryPage = 1; // Reset to first page
-            renderHistoryList();
-        }
-
-        // Show delete confirmation modal
-        function showDeleteModal(itemId) {
-            itemToDelete = itemId;
-            const modal = document.getElementById('deleteModal');
-            const passwordInput = document.getElementById('deletePassword');
-            
-            passwordInput.value = '';
-            document.getElementById('confirmDeleteBtn').disabled = true;
-            
-            modal.classList.add('show');
-            setTimeout(() => passwordInput.focus(), 300);
-        }
-
-        // Hide delete modal
-        function hideDeleteModal() {
-            const modal = document.getElementById('deleteModal');
-            modal.classList.remove('show');
-            itemToDelete = null;
-            document.getElementById('deletePassword').value = '';
-        }
-
-        // Check delete password
-        function checkDeletePassword() {
-            const password = document.getElementById('deletePassword').value;
-            const confirmBtn = document.getElementById('confirmDeleteBtn');
-            
-            confirmBtn.disabled = password !== DELETE_PASSWORD;
-        }
-
-        // Confirm delete item
-        function confirmDelete() {
-            if (!itemToDelete) return;
-            
-            try {
-                // Remove from historyData
-                historyData = historyData.filter(item => item.id !== itemToDelete);
-                
-                // Update localStorage
-                localStorage.setItem('returnHistory', JSON.stringify(historyData));
-                
-                // Update filtered data and reset to first page if current page becomes empty
-                filterHistory();
-                
-                const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-                if (currentHistoryPage > totalPages && totalPages > 0) {
-                    currentHistoryPage = totalPages;
+                if (currentPage === 'history') {
+                    await loadHistoryData();
                 }
-                
+
+            } else {
+                 showToast(`เกิดข้อผิดพลาดในการบันทึก: ${result.message || 'กรุณาตรวจสอบ GAS Script'}`, "error");
+            }
+
+        } catch (error) {
+            console.error('Error submitting form:', error);
+            showToast("เกิดข้อผิดพลาดในการส่งข้อมูล กรุณาตรวจสอบ URL หรือการตั้งค่า CORS", "error");
+        }
+        
+        setLoadingState(false);
+    }
+
+    // Page navigation
+    function showPage(page) {
+        currentPage = page;
+        
+        document.getElementById('formPage').style.display = 'none';
+        document.getElementById('historyPage').style.display = 'none';
+        
+        document.querySelectorAll('.nav-button').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        if (page === 'form') {
+            document.getElementById('formPage').style.display = 'block';
+            document.getElementById('returnFormBtn').classList.add('active');
+        } else if (page === 'history') {
+            document.getElementById('historyPage').style.display = 'block';
+            document.getElementById('historyBtn').classList.add('active');
+            loadHistoryData(); 
+        }
+    }
+
+    async function loadHistoryData() {
+        const config = window.elementSdk?.config || defaultConfig;
+        const gasUrl = config.gas_url || defaultConfig.gas_url;
+        const refreshBtn = document.getElementById('refreshBtn');
+
+        refreshBtn.innerHTML = '🔄 กำลังโหลด...';
+        refreshBtn.disabled = true;
+
+        const fetchUrl = `${gasUrl}?action=read`; 
+        
+        try {
+            const response = await fetch(fetchUrl);
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            
+            const result = await response.json();
+
+            if (result && Array.isArray(result.data)) {
+                historyData = result.data.reverse(); 
+                filterHistory(false); 
+                showToast("โหลดข้อมูลประวัติสำเร็จ", "success", "อัปเดตข้อมูล");
+            } else {
+                historyData = [];
+                filterHistory(false);
+                showToast("ไม่พบข้อมูลประวัติ หรือ GAS ส่งข้อมูลผิดพลาด", "error");
+            }
+        } catch (error) {
+            console.error('Error fetching history:', error);
+            historyData = [];
+            filterHistory(false);
+            showToast("เกิดข้อผิดพลาดในการโหลดประวัติจาก GAS", "error");
+        } finally {
+            refreshBtn.innerHTML = '🔄 รีเฟรชข้อมูล';
+            refreshBtn.disabled = false;
+        }
+    }
+
+    function updateHistoryStats() {
+        const today = new Date().toISOString().split('T')[0];
+        const todaySubmissions = filteredData.filter(item => 
+            // ใช้ item.returnDate.split('T')[0] เพื่อเทียบเฉพาะวันที่ YYYY-MM-DD
+            (item.returnDate.split('T')[0] === today)
+        ).length;
+
+        const totalSN = filteredData.reduce((total, item) => {
+            return total + getSNLines(item.snList).length;
+        }, 0);
+
+        document.getElementById('historyTotalSubmissions').textContent = filteredData.length;
+        document.getElementById('historyTodaySubmissions').textContent = todaySubmissions;
+        document.getElementById('historyTotalSN').textContent = totalSN;
+    }
+
+    function renderHistoryList() {
+        const historyList = document.getElementById('historyList');
+        const paginationContainer = document.getElementById('paginationContainer');
+        
+        if (filteredData.length === 0) {
+            historyList.innerHTML = `
+                <div class="empty-history">
+                    <div class="empty-icon">📋</div>
+                    <div class="empty-text">ไม่พบข้อมูลประวัติ</div>
+                    <div class="empty-subtext">ลองปรับเปลี่ยนตัวกรองหรือค้นหาใหม่</div>
+                </div>
+            `;
+            paginationContainer.style.display = 'none';
+            return;
+        }
+
+        const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+        const startIndex = (currentHistoryPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const currentPageData = filteredData.slice(startIndex, endIndex);
+
+        historyList.innerHTML = currentPageData.map(item => {
+            const snLines = getSNLines(item.snList);
+            
+            // **ใช้ฟังก์ชันใหม่สำหรับ วันที่และเวลาที่ส่ง**
+            const submittedDateStr = item.submittedAt instanceof Date ? item.submittedAt.toISOString() : item.submittedAt;
+            const formattedSubmittedDateTime = formatISODateTime(submittedDateStr);
+
+            // **ใช้ฟังก์ชันใหม่สำหรับ วันที่คืน**
+            const formattedReturnDate = formatISODateToDDMMYYYY(item.returnDate);
+            
+            const snPreview = snLines.join('\n');
+
+            return `
+                <div class="history-item">
+                    <button class="delete-btn" onclick="showDeleteModal('${item.id}')">
+                        🗑️ ลบ
+                    </button>
+                    <div class="history-header-info">
+                        <div class="history-name">${item.fullName}</div>
+                        <div class="history-date">${formattedSubmittedDateTime}</div> 
+                    </div>
+                    <div class="history-details">
+                        <div class="history-detail-item">
+                            <span>📅</span>
+                            <span>วันที่คืน: ${formattedReturnDate}</span> 
+                        </div>
+                        <div class="history-detail-item">
+                            <span>📦</span>
+                            <span class="sn-count-badge">${snLines.length} SN</span>
+                        </div>
+                    </div>
+                    <div class="history-sn-preview">${snPreview}</div>
+                </div>
+            `;
+        }).join('');
+
+        if (totalPages > 1) {
+            paginationContainer.style.display = 'flex';
+            renderPagination(totalPages);
+        } else {
+            paginationContainer.style.display = 'none';
+        }
+    }
+
+    function renderPagination(totalPages) {
+        const pageNumbers = document.getElementById('pageNumbers');
+        const paginationInfo = document.getElementById('paginationInfo');
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+
+        const startItem = (currentHistoryPage - 1) * itemsPerPage + 1;
+        const endItem = Math.min(currentHistoryPage * itemsPerPage, filteredData.length);
+        paginationInfo.textContent = `${startItem}-${endItem} จาก ${filteredData.length} รายการ`;
+
+        prevBtn.disabled = currentHistoryPage === 1;
+        nextBtn.disabled = currentHistoryPage === totalPages;
+
+        let pages = [];
+        const maxVisiblePages = 5;
+        
+        if (totalPages <= maxVisiblePages) {
+            pages = Array.from({length: totalPages}, (_, i) => i + 1);
+        } else {
+            const start = Math.max(1, currentHistoryPage - 2);
+            const end = Math.min(totalPages, start + maxVisiblePages - 1);
+            pages = Array.from({length: end - start + 1}, (_, i) => start + i);
+        }
+
+        pageNumbers.innerHTML = pages.map(page => `
+            <div class="page-number ${page === currentHistoryPage ? 'active' : ''}" 
+                 onclick="goToPage(${page})">
+                ${page}
+            </div>
+        `).join('');
+    }
+
+    function goToPage(page) {
+        currentHistoryPage = page;
+        renderHistoryList();
+    }
+
+    function goToPrevPage() {
+        if (currentHistoryPage > 1) {
+            currentHistoryPage--;
+            renderHistoryList();
+        }
+    }
+
+    function goToNextPage() {
+        const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+        if (currentHistoryPage < totalPages) {
+            currentHistoryPage++;
+            renderHistoryList();
+        }
+    }
+
+    function changeItemsPerPage() {
+        itemsPerPage = parseInt(document.getElementById('itemsPerPage').value);
+        currentHistoryPage = 1; 
+        renderHistoryList();
+    }
+
+    function showDeleteModal(itemId) {
+        itemToDelete = itemId;
+        const modal = document.getElementById('deleteModal');
+        const passwordInput = document.getElementById('deletePassword');
+        
+        passwordInput.value = '';
+        document.getElementById('confirmDeleteBtn').disabled = true;
+        
+        modal.classList.add('show');
+        setTimeout(() => passwordInput.focus(), 300);
+    }
+
+    function hideDeleteModal() {
+        const modal = document.getElementById('deleteModal');
+        modal.classList.remove('show');
+        itemToDelete = null;
+        document.getElementById('deletePassword').value = '';
+    }
+
+    function checkDeletePassword() {
+        const password = document.getElementById('deletePassword').value;
+        const confirmBtn = document.getElementById('confirmDeleteBtn');
+        
+        confirmBtn.disabled = password !== DELETE_PASSWORD;
+    }
+
+    async function confirmDelete() {
+        if (!itemToDelete) return;
+        
+        const password = document.getElementById('deletePassword').value;
+        if (password !== DELETE_PASSWORD) {
+            showToast('รหัสผ่านไม่ถูกต้อง', 'error');
+            return;
+        }
+
+        const config = window.elementSdk?.config || defaultConfig;
+        const gasUrl = config.gas_url || defaultConfig.gas_url;
+
+        try {
+            const formData = new FormData();
+            formData.append('action', 'delete');
+            formData.append('id', itemToDelete);
+
+            const response = await fetch(gasUrl, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (result.status === 'SUCCESS') {
                 hideDeleteModal();
                 showToast('ลบข้อมูลเรียบร้อยแล้ว', 'success');
-                
-                // Re-render everything
-                updateHistoryStats();
-                renderHistoryList();
-                
-            } catch (error) {
-                console.error('Error deleting item:', error);
-                showToast('เกิดข้อผิดพลาดในการลบข้อมูล', 'error');
+                await loadHistoryData(); 
+            } else {
+                showToast(`เกิดข้อผิดพลาดในการลบ: ${result.message || 'กรุณาตรวจสอบ GAS Script'}`, 'error');
             }
+            
+        } catch (error) {
+            console.error('Error deleting item:', error);
+            showToast('เกิดข้อผิดพลาดในการลบข้อมูล (Network Error)', 'error');
         }
+    }
 
-        // Filter and search functions
-        function filterHistory() {
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const dateFilter = document.getElementById('dateFilter').value;
+    // Filter and search functions
+    function filterHistory(resetPage = true) {
+        const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+        const dateFilter = document.getElementById('dateFilter').value;
+        
+        filteredData = historyData.filter(item => {
+            const matchesSearch = !searchTerm || 
+                item.fullName.toLowerCase().includes(searchTerm) ||
+                item.snList.toLowerCase().includes(searchTerm);
             
-            filteredData = historyData.filter(item => {
-                const matchesSearch = !searchTerm || 
-                    item.fullName.toLowerCase().includes(searchTerm) ||
-                    item.snList.toLowerCase().includes(searchTerm);
-                
-                const matchesDate = !dateFilter || item.returnDate === dateFilter;
-                
-                return matchesSearch && matchesDate;
-            });
+            // ใช้ .split('T')[0] เพื่อให้เทียบกับ input type="date" ได้ถูกต้อง
+            const matchesDate = !dateFilter || item.returnDate.split('T')[0] === dateFilter; 
             
-            // Reset to first page when filtering
-            currentHistoryPage = 1;
-            
-            updateHistoryStats();
-            renderHistoryList();
-        }
-
-        // Clear filters
-        function clearFilters() {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('dateFilter').value = '';
-            filteredData = [...historyData];
-            updateHistoryStats();
-            renderHistoryList();
-        }
-
-        // Export data to CSV
-        function exportData() {
-            if (filteredData.length === 0) {
-                showToast("ไม่มีข้อมูลให้ส่งออก", "error");
-                return;
-            }
-
-            const csvContent = [
-                ['วันที่ส่ง', 'วันที่คืน', 'ชื่อ-นามสกุล', 'จำนวน SN', 'รายการ SN'],
-                ...filteredData.map(item => {
-                    const snLines = item.snList.split('\n').filter(line => line.trim() !== '');
-                    const submittedDate = new Date(item.submittedAt).toLocaleDateString('th-TH');
-                    return [
-                        submittedDate,
-                        item.returnDate,
-                        item.fullName,
-                        snLines.length,
-                        snLines.join('; ')
-                    ];
-                })
-            ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-
-            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `ประวัติคืนของเสีย_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showToast("ส่งออกข้อมูลเรียบร้อยแล้ว", "success");
-        }
-
-        // Event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeApp();
-            setCurrentDate();
-            
-            // Form submission
-            document.getElementById('returnForm').addEventListener('submit', handleSubmit);
-            
-            // Character counter
-            document.getElementById('snList').addEventListener('input', updateCharCounter);
-            
-            // Navigation buttons
-            document.getElementById('returnFormBtn').addEventListener('click', () => showPage('form'));
-            document.getElementById('historyBtn').addEventListener('click', () => showPage('history'));
-            
-            // History page controls
-            document.getElementById('searchInput').addEventListener('input', filterHistory);
-            document.getElementById('dateFilter').addEventListener('change', filterHistory);
-            document.getElementById('clearFilterBtn').addEventListener('click', clearFilters);
-            document.getElementById('refreshBtn').addEventListener('click', loadHistoryData);
-            document.getElementById('exportBtn').addEventListener('click', exportData);
-            
-            // Pagination controls
-            document.getElementById('itemsPerPage').addEventListener('change', changeItemsPerPage);
-            document.getElementById('prevPageBtn').addEventListener('click', goToPrevPage);
-            document.getElementById('nextPageBtn').addEventListener('click', goToNextPage);
-            
-            // Delete modal controls
-            document.getElementById('deletePassword').addEventListener('input', checkDeletePassword);
-            document.getElementById('cancelDeleteBtn').addEventListener('click', hideDeleteModal);
-            document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
-            
-            // Close modal when clicking outside
-            document.getElementById('deleteModal').addEventListener('click', function(e) {
-                if (e.target === this) {
-                    hideDeleteModal();
-                }
-            });
-            
-            // Handle Enter key in password input
-            document.getElementById('deletePassword').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter' && !document.getElementById('confirmDeleteBtn').disabled) {
-                    confirmDelete();
-                }
-            });
-            
-            // Initial counter update
-            updateCharCounter();
+            return matchesSearch && matchesDate;
         });
-    </script>
+        
+        if (resetPage) {
+            currentHistoryPage = 1;
+        }
+        
+        updateHistoryStats();
+        renderHistoryList();
+    }
+
+    function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('dateFilter').value = '';
+        filterHistory();
+    }
+
+    // Export data to CSV
+    function exportData() {
+        if (filteredData.length === 0) {
+            showToast("ไม่มีข้อมูลให้ส่งออก", "error");
+            return;
+        }
+
+        const csvContent = [
+            // อัปเดต Header ให้สอดคล้องกับการเปลี่ยนแปลงวันที่
+            ['วันที่และเวลาส่ง', 'วันที่คืน', 'ชื่อ-นามสกุล', 'จำนวน SN', 'รายการ SN'],
+            ...filteredData.map(item => {
+                const snLines = getSNLines(item.snList);
+                
+                // ใช้ฟังก์ชันใหม่ในการจัดรูปแบบ
+                const submittedDateTime = formatISODateTime(item.submittedAt instanceof Date ? item.submittedAt.toISOString() : item.submittedAt);
+                const returnDate = formatISODateToDDMMYYYY(item.returnDate);
+                
+                return [
+                    submittedDateTime, // ใช้รูปแบบใหม่
+                    returnDate, // ใช้รูปแบบใหม่
+                    item.fullName,
+                    snLines.length,
+                    snLines.join('; ')
+                ];
+            })
+        ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+        const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `ประวัติคืนของเสีย_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showToast("ส่งออกข้อมูลเรียบร้อยแล้ว", "success");
+    }
+
+    // Event listeners
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeApp();
+        setCurrentDate();
+        
+        document.getElementById('returnForm').addEventListener('submit', handleSubmit);
+        document.getElementById('snList').addEventListener('input', updateCharCounter);
+        
+        document.getElementById('returnFormBtn').addEventListener('click', () => showPage('form'));
+        document.getElementById('historyBtn').addEventListener('click', () => showPage('history'));
+        
+        document.getElementById('searchInput').addEventListener('input', filterHistory);
+        document.getElementById('dateFilter').addEventListener('change', filterHistory);
+        document.getElementById('clearFilterBtn').addEventListener('click', clearFilters);
+        document.getElementById('refreshBtn').addEventListener('click', loadHistoryData); 
+        document.getElementById('exportBtn').addEventListener('click', exportData);
+        
+        document.getElementById('itemsPerPage').addEventListener('change', changeItemsPerPage);
+        document.getElementById('prevPageBtn').addEventListener('click', goToPrevPage);
+        document.getElementById('nextPageBtn').addEventListener('click', goToNextPage);
+        
+        document.getElementById('deletePassword').addEventListener('input', checkDeletePassword);
+        document.getElementById('cancelDeleteBtn').addEventListener('click', hideDeleteModal);
+        document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+        
+        document.getElementById('deleteModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideDeleteModal();
+            }
+        });
+        
+        document.getElementById('deletePassword').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !document.getElementById('confirmDeleteBtn').disabled) {
+                confirmDelete();
+            }
+        });
+        
+        updateCharCounter();
+    });
+</script>
  <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'992f62bc500d4b71',t:'MTc2MTIwMzEyMy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
